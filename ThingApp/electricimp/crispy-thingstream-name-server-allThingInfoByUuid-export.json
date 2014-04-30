@@ -1,0 +1,51 @@
+{
+  "crispy-impv00-hDzxieGblkLa" : {
+    "name" : "CrispyHW Loopd 002",
+    "readme" : "Crispy HW\r\nThis is a Prototype for Loopd.",
+    "allOutStreamUuidsByName" : {
+      "healthStatus" : "healthStatus-crispy-impv00-hDzxieGblkLa",
+      "debugLogB" : "debugLogB-crispy-impv00-hDzxieGblkLa",
+      "debugLog" : "debugLog-crispy-impv00-hDzxieGblkLa"
+    },
+    "thingUuid" : "crispy-impv00-hDzxieGblkLa"
+  },
+  "crispy-impv00-ul-myC18FWrm" : {
+    "name" : "CrispyHW ProtoTank 004",
+    "readme" : "Crispy HW\r\nThis is a Prototype for Loopd.",
+    "allOutStreamUuidsByName" : {
+      "healthStatus" : "healthStatus-crispy-impv00-ul-myC18FWrm",
+      "debugLogB" : "debugLogB-crispy-impv00-ul-myC18FWrm",
+      "debugLog" : "debugLog-crispy-impv00-ul-myC18FWrm"
+    },
+    "thingUuid" : "crispy-impv00-ul-myC18FWrm"
+  },
+  "crispy-impv00-H6LfA48Gcqds" : {
+    "name" : "CrispyHW ProtoTank 001",
+    "readme" : "Crispy HW\r\nThis is a Prototype for Loopd.",
+    "allOutStreamUuidsByName" : {
+      "healthStatus" : "healthStatus-crispy-impv00-H6LfA48Gcqds",
+      "debugLogB" : "debugLogB-crispy-impv00-H6LfA48Gcqds",
+      "debugLog" : "debugLog-crispy-impv00-H6LfA48Gcqds"
+    },
+    "thingUuid" : "crispy-impv00-H6LfA48Gcqds"
+  },
+  "crispy-impv00-HOThmJ2eTXuK" : {
+    "name" : "CrispyHW BLE 001",
+    "readme" : "Crispy HW\r\nThis is a Prototype BLE Scanner.",
+    "allOutStreamUuidsByName" : {
+      "healthStatus" : "healthStatus-crispy-impv00-HOThmJ2eTXuK",
+      "scanResponseBLE" : "scanResponseBLE-crispy-impv00-HOThmJ2eTXuK"
+    },
+    "thingUuid" : "crispy-impv00-HOThmJ2eTXuK"
+  },
+  "crispy-impv00-t1-GAAqyLtCy" : {
+    "name" : "CrispyHW Duppy 003",
+    "readme" : "Crispy HW\r\nThis is a Prototype for Loopd.",
+    "allOutStreamUuidsByName" : {
+      "healthStatus" : "healthStatus-crispy-impv00-t1-GAAqyLtCy",
+      "debugLogB" : "debugLogB-crispy-impv00-t1-GAAqyLtCy",
+      "debugLog" : "debugLog-crispy-impv00-t1-GAAqyLtCy"
+    },
+    "thingUuid" : "crispy-impv00-t1-GAAqyLtCy"
+  }
+}

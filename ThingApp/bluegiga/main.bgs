@@ -1,0 +1,456 @@
+###################
+#
+# CRISPY Tools BLE scanner
+#
+###################
+# CHARACTERISTIC_UUID Handles are:
+#   xgattCommand
+#   xgattDataOut
+#   xgattIndicate01
+#   xgattNotify01
+
+import "otaFW.bgs" # import var and procedures for Over The Air firmware update
+# otaFW.bgs also provides
+# dim tempBuff32(32)
+# dim tempInt32 # useful to have around
+# dim i(1) # save memory with 1 byte per index variables
+# dim j(1) # save memory with 1 byte per index variables
+# dim k(1) # save memory with 1 byte per index variables
+# dim t(1) # save memory with 1 byte per index variables
+# dim dataOutBuff1(20)
+# dim dataOutBuffIndex # keep track of which buffer has been acknowledged
+dim ad_field_type
+dim ad_field_length
+dim connection_resp
+
+dim pingType0Count(2)
+dim pingType1Count(2)
+dim pingType2Count(2)
+dim pingType3Count(2)
+dim pingType4Count(2)
+dim pingType5Count(2)
+dim pingType6Count(2)
+dim pingType7Count(2)
+dim packet_type
+
+dim connectedAsCentralHandle # when we ask to connect as a scanner to another who is just advertising, this is the handle the succesful connection will use
+dim battLevel(1)
+
+const testInterval = 32768
+
+dim crispyState
+const uninitState          = 0 # init
+const idleState            = 1 # wait for start scan command
+const scanState            = 2 # scan and report on UART to electric imp
+
+# Timer Handles
+#const OTATimerHandle        = 0 # defined in otaFW.bgs
+const testTimerHandle        = 1
+
+const advDataLen = 31
+dim advDataBuff(31) # custom Advertisement or Scan Response data (overload param to save memory)
+const srDataLen = 31
+dim srDataBuff(31) # custom Advertisement or Scan Response data (overload param to save memory)
+
+event system_boot(major, minor, patch, build, ll_version, protocol, hw)
+    tempBuff32(0:16) = "CRISPY Tools BLE"
+#CONSTRAINT: length 12   123456789012
+    tempBuff32(16:13) = "FW 140429b  \n" # __version__
+    call system_endpoint_tx(system_endpoint_uart1, 29, tempBuff32(0:29))
+    # write Firmware Revision local GATT attribute
+    call attributes_write(c_firmware_revision, 0, 12, tempBuff32(16:12)) # __version__
+
+    # set all GPIO pins to input/high (pull), except P1_0 and P1_1 to output LOW (no internal pull-ups)
+#    call hardware_io_port_config_direction(0, $0)
+#    call hardware_io_port_write(0, $ff, $ff)
+    # ...config_pull(port, pull_disable_mask, 1=all_port_pull_up)
+#    call hardware_io_port_config_pull(0, $00, 1)
+    # P1_0/1 will leak current if not externally pulled or set as outputs
+# port 1 is configured in init_acc()
+#    call hardware_io_port_config_direction(2, $0)
+#    call hardware_io_port_write(2, $ff, $ff)
+#    call hardware_io_port_config_pull(2, $00, 0)
+
+    # -------------------------------
+    # build custom advertisement data
+    # -------------------------------
+    
+    # build advertisement data
+    # flags for discoverable/connectable
+    advDataBuff(0:1) = $02 # ad field length = 2 bytes
+    advDataBuff(1:1) = gap_ad_type_flags   # ad field type = 0x01 (Flags)
+    advDataBuff(2:1) = $06 # flags = 0x06, connectable/undirected
+
+    # need to advertise mfg data iBeacon format
+    # UUID of Crispy Tools iBeacon
+    # 9dab7422-f258-4faf-b937-003a4160d077
+    advDataBuff(3:2) = "\x1a\xFF" # custom Mfg Data field
+#    advDataBuff(5:2) = "\x4c\x00" # Apple CIC
+#    advDataBuff(5:2) = "\x4d\x00" # NOT the Apple CIC
+    advDataBuff(5:2) = "\x11\xAA" # also NOT the Apple CIC
+    advDataBuff(7:2) = "\x02\x15" # magic Apple iBeacon preamble
+    # assuming type==02, length==$15
+    advDataBuff(9:16) = "\x9d\x8b\x74\x22\xf2\x58\x4f\xaf\xb9\x37\x00\x3a\x41\x60\xd0\x77"
+    advDataBuff(25:2) = 0 # little endian MajorId
+    advDataBuff(27:2) = 0 # little endian MinorId
+    advDataBuff(29:1) = "\xc6" # -58 dB FIXME: calibrate rssi
+
+    advDataBuff(30:1) = "\x00"
+    # CONSTRAINT: must match const advDataLen = 31
+    # set custom advertisement data
+    call gap_set_adv_data(0, advDataLen, advDataBuff(0:advDataLen))
+    
+    # now build custom scan response data
+    # set custom scan response data (i.e. the Device Name value)
+    # advertise device name here.
+    srDataBuff(0:1) = 11 # ad field length - 11 bytes, 1 type + 10 LoopdId
+    srDataBuff(1:1) = gap_ad_type_localname_complete   # ad field type = 0x09 (Complete local name)
+    srDataBuff(2:10) = "test:xx:xx" # c_device_name
+    call system_address_get()(tempBuff32(0:6))
+    srDataBuff(7:1) = ((tempBuff32(0:1)>>4) & $f) + 48 + ((tempBuff32(0:1)>>4) & $f)/10*7
+    srDataBuff(8:1) = (tempBuff32(0:1) & $f) + 48 + (tempBuff32(0:1) & $f)/10*7
+    srDataBuff(10:1) = ((tempBuff32(1:1)>>4) & $f) + 48 + ((tempBuff32(1:1)>>4) & $f)/10*7
+    srDataBuff(11:1) = (tempBuff32(1:1) & $f) + 48 + (tempBuff32(1:1) & $f)/10*7
+    srDataBuff(12:1) = $11 # 17 bytes (type + 16 bytes UUID)
+    srDataBuff(13:1) = $07 # type = complete list of 128bit UUIDs
+    # UUID Crispy Tools Service 90acd520-007f-40c4-9f97-83d10fd5d077 assigned little endian
+    srDataBuff(14:16) = "\x77\xd0\xd5\x0f\xd1\x83\x97\x9f\xc4\x40\x7f\x00\x20\d5\ac\x90"
+    
+    srDataBuff(30:1) = "\x00"
+    # CONSTRAINT: VERIFY const srDataLen = 31
+
+    # init variables for OTA 
+    call otaFW_system_boot()
+
+    dataOutBuff1(0:20) = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+    connectedAsCentralHandle = $ffffffff # $ffffffff means no connection has been requested
+    crispyState = uninitState
+
+    # enable interrupt detection on P0_1 pin, falling edge
+    # ...config_irq(port, enable_mask, 1=falling_edge)
+    #call hardware_io_port_config_irq(0, 1 << 1, 1)
+    # TODO: enable interrupts from accelerometer
+
+    #DEBUG DEBUG
+    # write custom device name to local GATT attribute
+    call system_endpoint_tx(system_endpoint_uart1, 5, "I am ")
+    call system_endpoint_tx(system_endpoint_uart1, 10, srDataBuff(2:10))
+    call system_endpoint_tx(system_endpoint_uart1, 1, "\n")
+
+    call attributes_write(c_device_name, 0, 10, srDataBuff(2:10))
+    call gap_set_adv_data(0, advDataLen, advDataBuff(0:advDataLen))
+    call gap_set_adv_data(1, srDataLen, srDataBuff(0:srDataLen))
+    # set advertisement interval, use all advertisement channels
+    call gap_set_adv_parameters(7900, 8100, 7)
+
+    # put module into discoverable/connectable mode (with user-defined advertisement data)
+    # on second thought, do not do this #call gap_set_mode(gap_user_data, gap_undirected_connectable)
+
+    call gap_set_scan_parameters(10 * $10, 10 * $10, 0) # $10 is 10msec
+    call gap_discover(gap_discover_generic)
+
+    pingType0Count(0:2) = 0
+    pingType1Count(0:2) = 0
+    pingType2Count(0:2) = 0
+    pingType3Count(0:2) = 0
+    pingType4Count(0:2) = 0
+    pingType5Count(0:2) = 0
+    pingType6Count(0:2) = 0
+    pingType7Count(0:2) = 0
+end
+
+# catch scan response event while scanning
+event gap_scan_response(rssi, packet_type_in, sender, address_type, bond, data_len, data_data)
+    # only check for main ad packets (packet_type = 0)
+#    if address_type = 0 then
+#        call system_endpoint_tx(system_endpoint_uart1, 22, "public address found!\n")
+#    end if
+    packet_type = packet_type_in + address_type
+    if packet_type = 0 then
+        pingType0Count(0:2) = pingType0Count(0:2) + 1
+        if ((pingType0Count(0:2) - 1) & $000001ff) = 0 then
+            call system_endpoint_tx(system_endpoint_uart1, 15, "Public type 0 x")
+            tempBuff32(0:1) = ((pingType0Count(0:2) >> 12) & $f) + $30 + ((pingType0Count(0:2) >> 12) & $f)/10*7
+            tempBuff32(1:1) = ((pingType0Count(0:2) >> 8) & $f) + $30 + ((pingType0Count(0:2) >> 8) & $f)/10*7
+            tempBuff32(2:1) = ((pingType0Count(0:2) >> 4) & $f) + $30 + ((pingType0Count(0:2) >> 4) & $f)/10*7
+            tempBuff32(3:1) = (pingType0Count(0:2) & $f) + $30 + (pingType0Count(0:2) & $f)/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 4, tempBuff32(0:4))
+            call system_endpoint_tx(system_endpoint_uart1, 2, "\r\n")
+        end if
+        # advertisement packet found during scan, so check for demo status/control service
+        # NOTE: LITTLE-ENDIAN BYTE ORDER
+        i(0:1) = 0
+        while i(0:1) < data_len
+            ad_field_length = data_data(i(0:1):1)
+            ad_field_type = data_data(i(0:1) + 1:1)
+            # look for custom Mfg Data type
+            if (ad_field_type = $ff) && (data_data(i(0:1) + 2:4) = "\x4d\x00\x02\x15") then
+                #call gap_end_procedure()(tempInt32)
+                j(0:1) = i(0:1) + 6 # skip ad_field_type and ad_field_length bytes and 2 byte CIC and 2 bytes apple magic numbers
+                call system_endpoint_tx(system_endpoint_uart1, 3, "id=")
+                # print ascii string
+                call system_endpoint_tx(system_endpoint_uart1, 10, data_data(j(0:1):10))
+#                call system_endpoint_tx(system_endpoint_uart1, 1, "\n")
+                call system_endpoint_tx(system_endpoint_uart1, 2, ": ")
+                j(0:1) = j(0:1) + 16 # skip over UUID
+                tempInt32 = data_data(j(0:1):2) # cast MajorId to 16bit LITTLE-ENDIAN
+                call system_endpoint_tx(system_endpoint_uart1, 1, "\n")
+            end if # ad_field_type = $ff Mfg Data
+            i(0:1) = i(0:1) + ad_field_length + 1
+        end while
+    end if # packet type 0
+    if packet_type = 1 then
+        pingType1Count(0:2) = pingType1Count(0:2) + 1
+        if ((pingType1Count(0:2) - 1) & $000001ff) = 0 then
+            call system_endpoint_tx(system_endpoint_uart1, 15, "Random type 0 x")
+            tempBuff32(0:1) = ((pingType1Count(0:2) >> 12) & $f) + $30 + ((pingType1Count(0:2) >> 12) & $f)/10*7
+            tempBuff32(1:1) = ((pingType1Count(0:2) >> 8) & $f) + $30 + ((pingType1Count(0:2) >> 8) & $f)/10*7
+            tempBuff32(2:1) = ((pingType1Count(0:2) >> 4) & $f) + $30 + ((pingType1Count(0:2) >> 4) & $f)/10*7
+            tempBuff32(3:1) = (pingType1Count(0:2) & $f) + $30 + (pingType1Count(0:2) & $f)/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 4, tempBuff32(0:4))
+            call system_endpoint_tx(system_endpoint_uart1, 2, "\r\n")
+        end if
+    end if # packet_type 1
+    if packet_type = 2 then
+        pingType2Count(0:2) = pingType2Count(0:2) + 1
+        if ((pingType2Count(0:2) - 1) & $000001ff) = 0 then
+            call system_endpoint_tx(system_endpoint_uart1, 18, ">> Public type 2 x")
+            tempBuff32(0:1) = ((pingType2Count(0:2) >> 12) & $f) + $30 + ((pingType2Count(0:2) >> 12) & $f)/10*7
+            tempBuff32(1:1) = ((pingType2Count(0:2) >> 8) & $f) + $30 + ((pingType2Count(0:2) >> 8) & $f)/10*7
+            tempBuff32(2:1) = ((pingType2Count(0:2) >> 4) & $f) + $30 + ((pingType2Count(0:2) >> 4) & $f)/10*7
+            tempBuff32(3:1) = (pingType2Count(0:2) & $f) + $30 + (pingType2Count(0:2) & $f)/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 4, tempBuff32(0:4))
+            call system_endpoint_tx(system_endpoint_uart1, 2, "\r\n")
+        end if
+    end if # packet_type 2
+    if packet_type = 3 then
+        pingType3Count(0:2) = pingType3Count(0:2) + 1
+        if ((pingType3Count(0:2) - 1) & $000001ff) = 0 then
+            call system_endpoint_tx(system_endpoint_uart1, 18, ">> Random type 2 x")
+            tempBuff32(0:1) = ((pingType3Count(0:2) >> 12) & $f) + $30 + ((pingType3Count(0:2) >> 12) & $f)/10*7
+            tempBuff32(1:1) = ((pingType3Count(0:2) >> 8) & $f) + $30 + ((pingType3Count(0:2) >> 8) & $f)/10*7
+            tempBuff32(2:1) = ((pingType3Count(0:2) >> 4) & $f) + $30 + ((pingType3Count(0:2) >> 4) & $f)/10*7
+            tempBuff32(3:1) = (pingType3Count(0:2) & $f) + $30 + (pingType3Count(0:2) & $f)/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 4, tempBuff32(0:4))
+            call system_endpoint_tx(system_endpoint_uart1, 2, "\r\n")
+        end if
+    end if # packet_type 3
+    if (packet_type = 4) || (packet_type = 5) then
+        pingType4Count(0:2) = pingType4Count(0:2) + 1
+        if ((pingType4Count(0:2) - 1) & $00000000) = 0 then
+            call system_endpoint_tx(system_endpoint_uart1, 17, ">>> Ping type 4 x")
+            tempBuff32(0:1) = ((pingType4Count(0:2) >> 12) & $f) + $30 + ((pingType4Count(0:2) >> 12) & $f)/10*7
+            tempBuff32(1:1) = ((pingType4Count(0:2) >> 8) & $f) + $30 + ((pingType4Count(0:2) >> 8) & $f)/10*7
+            tempBuff32(2:1) = ((pingType4Count(0:2) >> 4) & $f) + $30 + ((pingType4Count(0:2) >> 4) & $f)/10*7
+            tempBuff32(3:1) = (pingType4Count(0:2) & $f) + $30 + (pingType4Count(0:2) & $f)/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 4, tempBuff32(0:4))
+            call system_endpoint_tx(system_endpoint_uart1, 2, "\r\n")
+        end if
+    end if # packet_type 4
+    if (packet_type = 6) || (packet_type = 7) then
+        pingType6Count(0:2) = pingType6Count(0:2) + 1
+        if ((pingType6Count(0:2) - 1) & $00000000) = 0 then
+            call system_endpoint_tx(system_endpoint_uart1, 18, ">>>> Ping type 6 x")
+            tempBuff32(0:1) = ((pingType6Count(0:2) >> 12) & $f) + $30 + ((pingType6Count(0:2) >> 12) & $f)/10*7
+            tempBuff32(1:1) = ((pingType6Count(0:2) >> 8) & $f) + $30 + ((pingType6Count(0:2) >> 8) & $f)/10*7
+            tempBuff32(2:1) = ((pingType6Count(0:2) >> 4) & $f) + $30 + ((pingType6Count(0:2) >> 4) & $f)/10*7
+            tempBuff32(3:1) = (pingType6Count(0:2) & $f) + $30 + (pingType6Count(0:2) & $f)/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 4, tempBuff32(0:4))
+            call system_endpoint_tx(system_endpoint_uart1, 2, "\r\n")
+        end if
+    end if # packet_type 6
+end
+
+# Timer expired event handler 
+# Poll flash and if it’s ready, and send response to the remote device (DFU application)
+event hardware_soft_timer(handle)
+    if handle = testTimerHandle then
+    end if    
+
+    # FIXME: assuming curr_connection is always 0
+    call otaFW_hardware_soft_timer(0, handle)
+end
+
+# Connection event listener
+event connection_status(connection, flags, address, address_type, conn_interval, timeout, latency, bonding)
+    #save connection handle, is always 0 if only slave (from OTA support)
+    # FIXME: not saving this, not needed?  assume 0? curr_connection=connection
+    
+    # check for "new connection established" update
+    call system_endpoint_tx(system_endpoint_uart1, 18, "connection_status=")
+
+    if (flags & $05) = $05 then
+        if connection = connectedAsCentralHandle then # we are Central
+            call system_endpoint_tx(system_endpoint_uart1, 17, "*ERR*=Connected!\n") # I am not connectable, should not get here
+        else # we are peripheral
+            call system_endpoint_tx(system_endpoint_uart1, 7, "=SLAVE\n")
+        end if
+    end if
+    # check for "encrypted" status update (i.e. paired)
+    if (flags & $02) = $02 then
+        call system_endpoint_tx(system_endpoint_uart1, 10, "ENCRYPTED\n")
+    end if
+end
+
+event attclient_procedure_completed(connection, result, handle)
+    if (result = 0) && (handle = xgattCommand) then
+        # go to Idle ?
+    else
+        call system_endpoint_tx(system_endpoint_uart1, 36, "*ERR* attclient_procedure_completed\n")
+    end if
+end
+# Disconnection event listener
+event connection_disconnected(handle, result)
+    # go back to discoverable and ready for connection if disconnected
+    # return to discoverable/connectable mode (with user-defined advertisement data)
+    call gap_set_mode(gap_user_data, gap_undirected_connectable)
+    call system_endpoint_tx(system_endpoint_uart1, 17, "_DIS_connect cuz:")
+    tempBuff32(0:1) = ((result >> 12) & $f) + 48 + ((result >> 12) & $f)/10*7
+    tempBuff32(1:1) = ((result >> 8) & $f) + 48 + ((result >> 8) & $f)/10*7
+    tempBuff32(2:1) = ((result >> 4) & $f) + 48 + ((result >> 4) & $f)/10*7
+    tempBuff32(3:1) = (result & $f) + 48 + (result & $f)/10*7
+    call system_endpoint_tx(system_endpoint_uart1, 4, tempBuff32(0:4))
+    call system_endpoint_tx(system_endpoint_uart1, 2, "\r\n")
+    #time in 1/32768 seconds, 656 ~20msec, 3277 ~ 100msec
+    #handle = timer identification (always 0 for now because only 1 timer)
+    #single_shot=1, repeat=0
+    # disable timer as a side effect
+    call hardware_set_soft_timer(0, 1, 0)
+end
+
+event attclient_indicated(connection, handle)
+    if handle = xgattDataOut then
+        tempBuff32(0:18) = "dataOut Ind n ack\n"
+        tempBuff32(12:1) = $30 + dataOutBuffIndex # $30 is ascii "0"
+        call system_endpoint_tx(system_endpoint_uart1, 18, tempBuff32(0:18))
+        if dataOutBuffIndex = 0 then
+            if dataOutBuff1(0:1) > 0 then
+                dataOutBuffIndex = 1
+                call attributes_write(xgattDataOut, 0, 20, dataOutBuff1(0 : 20))
+            end if
+        end if
+#        if dataOutBuffIndex = 1 then
+#            if dataOutBuff2(0:1) > 0 then
+#                dataOutBuffIndex = 2
+#                call attributes_write(xgattDataOut, 0, 20, dataOutBuff2(0 : 20))
+#            end if
+#        end if
+#        if dataOutBuffIndex = 2 then
+#            if dataOutBuff3(0:1) > 0 then
+#                dataOutBuffIndex = 3
+#                call attributes_write(xgattDataOut, 0, 20, dataOutBuff3(0 : 20))
+#            end if
+#        end if
+    else
+        call system_endpoint_tx(system_endpoint_uart1, 17, "ERR ? Ind handle\n")
+    end if
+end
+
+# catch status update so we know when the other client is connected + subscribed (from slave.bgs example)
+event attributes_status(handle, flags)
+    if handle = xgattDataOut then
+        if flags = 2 then
+            call system_endpoint_tx(system_endpoint_uart1, 5, "+IND\n")
+        else
+            call system_endpoint_tx(system_endpoint_uart1, 5, "-IND\n")
+        end if
+    end if
+end
+
+event attributes_value(connection, reason, handle, offset, value_len, value_data)
+    # This event is called whenever the iPhone writes to any GATT attribute
+
+    if handle = xgattCommand then
+        if value_len >= 2 then            
+            tempBuff32(0:7) = "C=xxxx\n"
+            tempBuff32(2:1) = (value_data(1:1)/$10) + 48 + ((value_data(1:1)/$10)/10*7) # Command byte 1 10's digit
+            tempBuff32(3:1) = (value_data(1:1)&$f)  + 48 + ((value_data(1:1)&$f )/10*7) # Command byte 1 1's digit
+            tempBuff32(4:1) = (value_data(0:1)/$10) + 48 + ((value_data(0:1)/$10)/10*7) # Command byte 0 10's digit
+            tempBuff32(5:1) = (value_data(0:1)&$f)  + 48 + ((value_data(0:1)&$f )/10*7) # Command byte 0 1's digit
+            call system_endpoint_tx(system_endpoint_uart1, 7, tempBuff32(0:7))
+            tempBuff32(0:21) ="D=xxxxxxxxxxxxxxxxxx\n"
+            if value_len > 2 then
+                tempBuff32(2:value_len-2) = value_data(2:value_len-2)
+            end if
+            call system_endpoint_tx(system_endpoint_uart1, 21, tempBuff32(0:21))
+
+            if value_data(0:2) = 1 then # Cmd 1
+            else
+            if value_data(0:2) = 2 then # Cmd 2
+                dataOutBuff1(0:20) = "n 2 indications.\x00\x00\x00\x00"
+                dataOutBuffIndex = 0
+                call attributes_write(xgattDataOut, 0, 20, "This is large data i")
+            else
+            if value_data(0:2) = 3 then # Cmd 3 return version #
+                call system_endpoint_tx(system_endpoint_uart1, 8, "cmd ver\n")
+                dataOutBuff1(0:20) = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+                dataOutBuffIndex = 0
+                call attributes_write(xgattDataOut, 0, 20, "00.00.01-alpha\x00\x00\x00\x00\x00\x00")
+            else
+            if value_data(0:2) = 4 then # Cmd 4
+            else
+            if value_data(0:2) = 5 then # cmd 5
+            else
+            if value_data(0:2) = 6 then # cmd 6
+            else
+            if value_data(0:2) = 7 then # cmd 7
+            else
+                # Error, unknown command
+                #time in 1/32768 seconds, 656 ~20msec, 3277 ~ 100msec
+                #handle = timer identification (always 0 for now because only 1 timer)
+                #single_shot=1, repeat=0
+                # disable timer as a side effect
+                call hardware_set_soft_timer(0, 1, 0)
+                call system_endpoint_tx(system_endpoint_uart1, 3, "E2\n")
+            end if # cmd 7
+            end if # cmd 6
+            end if # cmd 5
+            end if # command 4
+            end if # cmd 3, return version # 
+            end if # cmd 2, return large data # TEST command
+            end if # cmd 1, 
+        else # error, command too short
+            call system_endpoint_tx(system_endpoint_uart1, 3, "E1\n")
+            dataOutBuff1(0:20) = "xpect int16 LE order"
+            dataOutBuffIndex = 0
+            call attributes_write(xgattDataOut, 0, 20, "Command too short. E")
+        end if        
+    end if
+
+    call otaFW_attributes_value(connection, handle, offset, value_len, value_data(0:value_len))
+
+end
+
+event hardware_adc_result(input, value)
+    #adc read complete, write result to GATT table
+    battLevel(0:1) = value >> 7 #convert to range 0x00 - 0xFF
+    # FIXED: 0x00 = 0.0V, 0xFF = 3.60V
+    # Adjust for Bluetooth spec says this should return 0 to 100 in units of % capacity
+    # FIXME: TODO: set battery level min and max experimentally
+#    if battLevel(0:1) < 100 then # ??? is ~2.4V (1.2V per AAA)
+#        battLevel(0:1) = 100
+#    end if
+    # ??? is 3.3V 100%
+#    battLevel(0:1) = battLevel(0:1) - 100
+#    battLevel(0:1) = (battLevel(0:1) * 100) / (250 - 100)
+#    if battLevel(0:1) > 100 then
+#        battLevel(0:1) = 100
+#    end if
+    call attributes_write(xgatt_battery, 0, 1, battLevel(0:1))
+    advDataBuff(27:2) = battLevel(0:1)
+end
+
+event hardware_io_port_status(timestamp, port, irq, state)
+# catch interrupts for input pins (P0_1 rising edge in this demo)
+# catch accelerometer interrupts
+# allow any reason we get here (button or accelerometer IRQ)
+# DONT CHECK   if port = 0 && ((irq >> 1) & $01 = $01) then
+    
+    call system_endpoint_tx(system_endpoint_uart1, 4, "IRQ\n")
+    # also read battery here
+    call hardware_adc_read(15,0,0)
+
+end
+
+# end of code

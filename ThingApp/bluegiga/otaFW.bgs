@@ -1,0 +1,241 @@
+###############################################################################
+# common var and procedure for OTA firmware update
+# __version__ 2014-04-10a
+###############################################################################
+
+# variables for OTA support
+export const OTATimerHandle        = 0
+
+export dim tempBuff32(32) # FIXME: does this need to be this large?
+export dim tempInt32 # useful to have around
+export dim i(1) # save memory with 1 byte per index variables
+export dim j(1) # save memory with 1 byte per index variables
+export dim k(1) # save memory with 1 byte per index variables
+export dim t(1) # save memory with 1 byte per index variables
+# i === i(0:1)
+# j === j(0:1)
+# k === k(0:1)
+# t === t(0:1)
+export dim spi_response(6) #BUGBUG!! this was 4 for Winbond but Microchip needs 6!  Making 6 just in case
+export dim spi_AAI_command(24) # CONSTRAINT: should only need 24
+#export dim dataOutBuff0(20)
+export dim dataOutBuff1(20)
+#export dim dataOutBuff2(20)
+#export dim dataOutBuff3(20)
+export dim dataOutBuffIndex # keep track of which buffer has been acknowledged
+export dim spiresult
+#export dim channel
+export dim spi_len # FIXME: test if I can pass spi_len(0:1)
+# not needed, passed as procedure param export dim curr_connection
+export dim dfu_pointer  #current pointer to flash location to upload firmware
+# FIXME: dfu_pointer could be 3 bytes to save mem dfu_pointer(3)
+# Flash retry counter
+export dim testCounter(0) # use testCounter(0:1)
+# Flash retry counter
+export dim max_retries(0) # use max_retries(0:1)
+
+export procedure otaFW_system_boot()
+    # Initialize the DFU pointer
+    dfu_pointer=0
+# Microchip    spi_AAI_command(0:1)=$ad   #Auto Address Increment (AAI) Programming command
+    spi_AAI_command(0:1) = $02   # Winbond burst read command 
+
+    #flip endianness for address  do setup for next cycle here for speed
+    tempBuff32(0:4)=dfu_pointer
+    spi_AAI_command(1:1)=tempBuff32(2:1)
+    spi_AAI_command(2:1)=tempBuff32(1:1)
+    spi_AAI_command(3:1)=tempBuff32(0:1)
+    
+    # Inti Flash retry counter and MAX retries
+    testCounter(0:1)=0
+    max_retries(0:1)=10
+
+    # configure hardware io from OTA example code
+    call hardware_io_port_config_pull(1,$7,1)
+    
+    # set power pin as output and pull down
+    # also set p1.1 to output (does not have internal pull-resistor)
+    call hardware_io_port_write(1,$7,0)    
+    call hardware_io_port_config_direction(1,$3)
+    # hardware_io_port_config_direction Bitmask for each individual pin direction
+    # bit0 means input (default) bit1 means output
+    # Example: for all port's pins as output use $FF
+end
+
+export procedure otaFW_hardware_soft_timer(curr_connection, handle)
+    if handle=0 then
+        call hardware_io_port_config_direction(1,$7)
+        call hardware_spi_transfer(0,2,"\x05\x00")(spiresult,tempInt32,spi_len,spi_response(0:3)) #BUGBUG changed from \0x00?
+        call hardware_io_port_config_direction(1,$3)
+        
+        # Check if max retries have been reached
+        if (testCounter(0:1) < max_retries(0:1)) then
+            # Increase retry counter
+            testCounter(0:1) = testCounter(0:1) + 1
+        else
+            # Could not talk to the flash : Report error core 0x90
+            call attributes_user_write_response(curr_connection, $90)
+            call system_endpoint_tx(system_endpoint_uart1, 8, "ERR SPI\n")
+
+        end if
+        # Flash was not ready – check again later
+        if spi_response(1:1) & 1 then
+            call hardware_set_soft_timer(6000,0,1)      
+        else
+            # Flash was ready, send response to the remote device (DFU application)
+            call attributes_user_write_response(curr_connection, 0)
+        end if       
+    end if
+end
+
+export procedure otaFW_attributes_value(curr_connection, handle, offset, value_len, value_data())
+    #below code for ota_data and ota_control is for OTA suport
+    # Thanks to modifications from Zdravko Nanev to the original Bluegiga sample
+    # See https://bluegiga.zendesk.com/entries/30699103
+    # Check if OTA control point attribute is written by the remote device and execute the command
+        # Command 0 : Erase flash block 0 (0x00000-0x1FFFF)
+        # Command 1 : Erase flash block 1 (0x10000-0x3FFFF)
+        # Command 2 : Reset DFU data pointer
+        # Command 3 : Boot to DFU mode
+    # In case of errors application error code 0x80 is returned to the remote device
+    # In case the flash comms fails error code 0x90 is returned to the remote device
+    if handle = ota_control then
+        #attribute is user attribute, reason is always write_request_user
+        if value_len >1 || offset >0 then
+            # Not a valid command -> report application error code : 0x80
+            call attributes_user_write_response(curr_connection, $80)
+        else
+            tempInt32=value_data(0:1)
+            if tempInt32=0 then   # Command 0 received -> Erase block 0
+            
+                #reset retry counter
+                testCounter(0:1)=0
+                
+                #write enable, cs down
+                call hardware_io_port_config_direction(1,$7)        
+                call hardware_spi_transfer(0,1,"\x06")
+                call hardware_io_port_config_direction(1,$3)
+        
+                # erase block 0 : 0-1ffff
+                call hardware_io_port_config_direction(1,$7)
+                call hardware_spi_transfer(0,4,"\xd8\x00\x00\x00")
+                call hardware_io_port_config_direction(1,$3)        
+                
+                #start timer to poll for erase complete
+                call hardware_set_soft_timer(6000,0,1)
+            end if
+            
+            if tempInt32=1 then # Command 1 received -> Erase block 1 
+
+                #reset retry counter
+                testCounter(0:1)=0
+                
+                #write enable
+                call hardware_io_port_config_direction(1,$7)
+                call hardware_spi_transfer(0,1,"\x06")
+                call hardware_io_port_config_direction(1,$3)
+
+                # erase block 1 : 10000-3ffff
+                call hardware_io_port_config_direction(1,$7)
+                call hardware_spi_transfer(0,4,"\xd8\x01\x00\x00")
+                call hardware_io_port_config_direction(1,$3)
+                
+                #start timer to poll for erase complete
+                call hardware_set_soft_timer(6000,0,1)
+            end if
+            if tempInt32=2 then # Command 2 received -> Erase DFU pointer
+                dfu_pointer=0
+                #flip endianness for address  do setup for next cycle here for speed
+                tempBuff32(0:4)=dfu_pointer
+                spi_AAI_command(1:1)=tempBuff32(2:1)
+                spi_AAI_command(2:1)=tempBuff32(1:1)
+                spi_AAI_command(3:1)=tempBuff32(0:1)
+                call attributes_user_write_response(curr_connection, 0)
+            end if
+            if tempInt32=3 then # Command 3 received -> Boot to DFU mode
+                call system_endpoint_tx(system_endpoint_uart1, 9, "Boot DFU\n")
+                call system_endpoint_tx(system_endpoint_uart1, 6, "\rNOW\r\n")
+                call system_reset(1)
+            end if
+            if tempInt32=4 then  # Command 4 received -> power up the SPI flash
+                #pull power and chip select pins up
+                call system_endpoint_tx(system_endpoint_uart1, 7, "SPI On\n")
+                
+                call hardware_io_port_write(1,$1,$1)
+                
+                # Microchip SPI flash needs to clear bits BP0 and BP1 in status register in order to unprotect writes
+                # Sequence is: [ 0x50 ] [ 0x01 0x00 ]
+                            
+                #Enable-Write-Status-Register, cs down
+#                call hardware_io_port_config_direction(1,$7)        
+#                call hardware_spi_transfer(0,1,"\x50")
+#                call hardware_io_port_config_direction(1,$3)
+        
+                # Write-Status-Register, value 0x00 (on power up only BP1 and BP0 are set)
+#                call hardware_io_port_config_direction(1,$7)
+#                call hardware_spi_transfer(0,2,"\x01\x00")
+#                call hardware_io_port_config_direction(1,$3)  
+                
+                call attributes_user_write_response(curr_connection, $0)
+            end if
+            if tempInt32>4 then # Unknown command -> report application error code : 0x80
+                call attributes_user_write_response(curr_connection, $80)
+            end if
+            
+        end if
+    end if
+    
+    # Check if OTA data attribute is written which carries the firmware update
+    # and store the data to the external SPI flash
+    if handle = ota_data then
+        #it can take up to 800 us for full page to program #FIXME: 800us per page but we are only writing bytes.  Spec says 10usec.  No need to check?
+        #loop couple of times for write to complete
+#        call hardware_io_port_config_direction(1,$7)
+#        call hardware_spi_transfer(0,2,"\x05\x00")(spiresult,channel,spi_len,spi_response(0:2)) # start polling
+#            a=spi_response(1:1)
+#        while a & 1
+#            call hardware_spi_transfer(0,1,"\x00")(spiresult,channel,spi_len,spi_response(0:1))
+#            a = spi_response(0:1)
+#        end while
+#        call hardware_io_port_config_direction(1,$3)
+        
+        # NOTE: when programming page, address cannot wrap over 256 byte boundary.
+        # This must be handled in the remote DFU application    
+        # This is write no response attribute, no need to handle response to other end
+        # TODO: handle zero length writes
+#        spi_response(0:1)=$ad   #Auto Address Increment (AAI) Programming command
+        
+#        #flip endianness for address
+#        tempBuff32(0:4)=dfu_pointer
+#        spi_response(1:1)=tempBuff32(2:1)
+#        spi_response(2:1)=tempBuff32(1:1)
+#        spi_response(3:1)=tempBuff32(0:1)
+        
+        # enable SPI flash write mode
+        #write enable
+        call hardware_io_port_config_direction(1,$7)
+        call hardware_spi_transfer(0,1,"\x06")
+        call hardware_io_port_config_direction(1,$3)
+        
+        spi_AAI_command(4 : value_len) = value_data(0 : value_len)
+        #write data
+        call hardware_io_port_config_direction(1,$7)
+        call hardware_spi_transfer(0,4 + value_len,spi_AAI_command(0:4 + value_len))        
+
+#        #send data in next transfer, leave chip select asserted
+#        call hardware_spi_transfer(0,value_len,value_data(0:value_len))
+
+        call hardware_io_port_config_direction(1,$3)
+               
+        #increase DFU offset
+        dfu_pointer=dfu_pointer+value_len        
+        #flip endianness for address  do setup for next cycle here for speed
+        tempBuff32(0:4)=dfu_pointer
+        spi_AAI_command(1:1)=tempBuff32(2:1)
+        spi_AAI_command(2:1)=tempBuff32(1:1)
+        spi_AAI_command(3:1)=tempBuff32(0:1)
+
+    end if
+end
+
+# end of code

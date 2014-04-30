@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<hardware>
+    <sleeposc enable="true" ppm="30" />
+    <script enable="true" />
+    <txpower power="15" bias="5" />
+	<usart channel="0" mode="spi_master" alternate="2" polarity="negative" phase="0" endianness="msb" baud="2000000" endpoint="none" />
+    <usart channel="1" mode="uart" alternate="1" baud="230400" endpoint="none" flow="false" />
+<!-- disable P1_7 because we are using it as accelrometer IRQ 1     
+    <pmux regulator_pin="7" />
+-->
+    <slow_clock enable="true" />
+    <port index="0" pull="down" tristatemask="0" />
+    <port index="1" pull="down" tristatemask="0" />
+    <port index="2" pull="down" tristatemask="0" />
+    <sleep enable="true" />
+    <otaboot cs_port="1" cs_pin="2" power_port="1" power_pin="0" uart="0" />
+</hardware>

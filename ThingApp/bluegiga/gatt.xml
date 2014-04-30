@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration>
+
+    <!-- 1800: org.bluetooth.service.generic_access -->
+    <service uuid="1800" id="generic_access">
+        <description>Generic Access</description>
+
+        <!-- 2A00: org.bluetooth.characteristic.gap.device_name -->
+        <characteristic uuid="2A00" id="c_device_name">
+            <properties read="true" />
+            <!--
+                NOTE: this value is automatically configured to be part of scan response data,
+                so it is supposed to show up on scanners set in Active Scanning mode.
+
+                Given the BGScript application, it will be OVERWRITTEN by the custom advertisement
+
+            -->
+            <!--   1234567890123456789 It's a good idea to keep this <= 19 characters, for proper display on iOS -->
+            <value>xx:xx: nnnnnnnnnn</value>
+        </characteristic>
+
+        <!-- 2A01: org.bluetooth.characteristic.gap.appearance -->
+        <characteristic uuid="2a01" id="c_appearance">
+            <description>Appearance</description>
+            <properties read="true" const="true" />
+            <value type="hex">0200</value>
+        </characteristic>
+    
+    </service>
+
+    <!-- 180A: org.bluetooth.service.device_information -->
+    <service uuid="180A" id="device_information">
+        <description>Device Information</description>
+
+        <!-- 2A29: org.bluetooth.characteristic.manufacturer_name_string -->
+        <characteristic uuid="2A29" id="c_manufacturer_name">
+            <description>Manufacturer Name</description>
+            <properties read="true" const="true" />
+            <value>Interface Arts</value>
+        </characteristic>
+
+        <!-- 2A24: org.bluetooth.characteristic.model_number_string -->
+        <characteristic uuid="2A24" id="c_model_number">
+            <description>Model Number</description>
+            <properties read="true" const="true" />
+            <value>0.0.0</value>
+        </characteristic>
+
+        <!-- 2A26: org.bluetooth.characteristic.firmware_revision_string -->
+        <characteristic uuid="2A26" id="c_firmware_revision">
+            <description>Firmware Revision</description>
+            <properties read="true" />
+            <value>FW yymmddvvv</value>
+        </characteristic>
+    </service>
+
+<!--
+    <service uuid="1804" advertise="true">
+        <description>txpower</description>
+        <characteristic uuid="2A07" id="xgatt_txpower">
+            <properties read="true" write="false" />
+            <value length="1" />
+        </characteristic>
+    </service>
+-->
+
+    <service uuid="180F" advertise="true">
+        <description>Battery Service</description>
+        <characteristic uuid="2A19" id="xgatt_battery">
+            <properties read="true" />
+            <value length="1" />
+        </characteristic>
+    </service>
+
+<!--
+production UUIDs here
+90acd520-007f-40c4-9f97-83d10fd5e513
+30e6a231-9faf-4fdc-b060-0b3413122874
+76b4eb3d-56f4-40ad-9250-91aec81bbf28
+f7ccfc50-f4ad-4a8b-8514-8f299169bd2f
+cca66ad6-82f1-4eec-afaa-97e92f8886b1
+-->
+    <service uuid="90acd520-007f-40c4-9f97-83d10fd5d077" advertise="true">
+        <description>CRISPY Tools UUID</description>
+        <characteristic uuid="30e6a231-9faf-4fdc-b060-0b341312d077" id="xgattCommand">
+            <properties read="true" write="true" />
+            <value length="20" />
+        </characteristic>
+<!-- now use xgattCommand with command = 0xDADA to push params        
+-->
+        <characteristic uuid="76b4eb3d-56f4-40ad-9250-91aec81bd077" id="xgattDataOut">
+            <properties read="true" write="false" indicate="true" />
+            <value length="20" />
+        </characteristic>        
+        <characteristic uuid="f7ccfc50-f4ad-4a8b-8514-8f299169d077" id="xgattIndicate01">
+            <properties read="true" write="false" indicate="true" />
+            <value length="20" />
+        </characteristic>
+        <characteristic uuid="cca66ad6-82f1-4eec-afaa-97e92f88d077" id="xgattNotify01">
+            <properties read="true" write="false" indicate="true" />
+            <value length="20" />
+        </characteristic>        
+    </service>
+
+    <service uuid="1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0">
+        <description>Bluegiga OTA</description>
+        <characteristic uuid="f7bf3564-fb6d-4e53-88a4-5e37e0326063" id="ota_control">
+            <properties write="true" />
+            <value length="1" type="user" />
+        </characteristic>
+        <characteristic uuid="984227f3-34fc-4045-a5d0-2c581f81a153" id="ota_data">
+            <properties write_no_response="true" />
+            <value length="23" />
+        </characteristic>
+    </service>
+
+</configuration>
