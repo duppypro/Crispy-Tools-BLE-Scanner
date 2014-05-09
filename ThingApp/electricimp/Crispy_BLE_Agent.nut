@@ -5,7 +5,7 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-04-29d"
+const versionString = "crispy BLE v00.01.2014-05-07a"
 fakeMillis <- 42 // fake out millisecond times for debugging
 
 ///////////////////////////////////////////////
@@ -38,7 +38,7 @@ myThingInfo <- {}
     myThingInfo.readme <- "crispy\r\nThis is a crispy HW BLE scanner."
 
 logCount <- 0 // only print log every once in awhile
-logMod <- 10 
+logMod <- 100 // 10 
 
 // helper variables ???
 
@@ -116,8 +116,18 @@ device.ondisconnect(function() { // FIXME: send info to healthStatus when discon
 device.on("event", function(table) {
     local timeKey = timestamp()
 
-    if ((logCount++ % logMod) == 0){
-        server.log("@" + timeKey + " Device sent\r\n" + http.jsonencode(table))
+    if ("scanResponseBLE" in table) {
+        try {
+            table.scanResponseBLE = http.jsondecode(table.scanResponseBLE)
+        } catch (ex) {
+        }
+        if ((logCount++ % logMod) == 0){
+            // server.log("@" + timeKey + " Device sent\r\n" + http.jsonencode(table))
+            // server.log(table.scanResponseBLE)
+            server.log("@" + timeKey + " Device sent\r\n" + http.jsonencode(table.scanResponseBLE))
+        } else {
+            // server.log("@")
+        }
     }
     // post to firebase
     // putStreamValue(table, timeKey)

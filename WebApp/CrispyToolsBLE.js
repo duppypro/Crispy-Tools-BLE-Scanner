@@ -5,21 +5,20 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // human readable version of this script
-var scriptVersion = 'CrispyToolsBLE.js v2014-04-30a'
+var scriptVersion = 'CrispyToolsBLE.js v2014-05-02a'
 
 ///////////////////////////////////////////////////////////////////////////////
 // firebase references
 ///////////////////////////////////////////////////////////////////////////////
+var rootRef = 'https://ibeacon-sequence-tsns.firebaseio.com/' // URL of the firebase
 var refThingstreamServer = 'https://crispy-thingstream-name-server.firebaseio.com' // URL of the firebase
-var d3SelViz = d3.selectAll('#Viz') // DOM element that holds all visualizations
-var d3SelLog = d3.selectAll('.pageLog') // DOM element for log messages
+var tsVizD3Sel = d3.select('#TSViz') // d3 selection that holds all visualizations
+var logD3Sel = d3.select('#TSLog') // d3 selection for log messages
 var d3SelButtons // DOM element for Buttons
 var d3SelThingVizs // DOM element for all ThingStream Visualizations
 var TEXT_HEIGHT = 16 // default guess, this is updated later in page load
 var estimatedServerTimeOffset = 0 // milliseconds
-var refServerTimeOffset = new Firebase(fbUrl([
-		refThingstreamServer, '.info', 'serverTimeOffset'
-	]))
+var serverTimeOffsetRef = new Firebase( [rootRef, '.info', 'serverTimeOffset'] .join('/') )
 var refAllStreamInfoByUuid = new Firebase(fbUrl([
 		refThingstreamServer,	'allStreamInfoByUuid'
 	]))
@@ -362,7 +361,7 @@ logD3Sel.append('div').text('Loading Firebase...')
 serverTimeOffsetRef.on('value', function (snap) {
 // minimal effort here to sync local time and server time.
 	var d3Sel = logD3Sel.selectAll('.fbLoadMessage')
-		// .data([true]) // FIXME: is there a better way?
+		.data([true]) // FIXME: is there a better way?
 
 	// data here
 	serverTimeOffset = snap.val() // change global time offset

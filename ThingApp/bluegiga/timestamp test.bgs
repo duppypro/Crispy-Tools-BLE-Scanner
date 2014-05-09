@@ -42,10 +42,14 @@ dim advDataBuff(31) # custom Advertisement or Scan Response data (overload param
 const srDataLen = 31
 dim srDataBuff(31) # custom Advertisement or Scan Response data (overload param to save memory)
 
+dim ones
+dim tens
+dim hundreds
+
 event system_boot(major, minor, patch, build, ll_version, protocol, hw)
     tempBuff32(0:17) = "CRISPY Tools BLE "
 #CONSTRAINT: length 12   123456789012
-    tempBuff32(17:13) = "FW 140508b  \n" # __version__
+    tempBuff32(17:13) = "FW 140508a  \n" # __version__
     call system_endpoint_tx(system_endpoint_uart1, 30, tempBuff32(0:30))
     # write Firmware Revision local GATT attribute
     call attributes_write(c_firmware_revision, 0, 12, tempBuff32(17:12)) # __version__
@@ -141,6 +145,11 @@ event system_boot(major, minor, patch, build, ll_version, protocol, hw)
     call gap_set_scan_parameters(10 * $10, 10 * $10, 0) # $10 is 10msec
     call gap_discover(gap_discover_generic) # start scanning
 
+    ones = $30 # ASCII for '0'
+    tens = $30 # ASCII for '0'
+    hundreds = $30 # ASCII for '0'
+    #call set_soft_timer(3 * 32768, testTimerHandle, 0)
+
 end
 
 # catch scan response event while scanning
@@ -148,6 +157,24 @@ event gap_scan_response(rssi, packet_type, sender, address_type, bond, data_len,
     # only check for main ad packets (packet_type = 0)
     if packet_type = 0 then # send all scan_response info
         call system_endpoint_tx(system_endpoint_uart1, 1, "{") # send first { right away to set time stamp
+        tempBuff32(0:10) = "\x22i\x22:\x22nnn\x22," # "i":"nnn",
+        tempBuff32(7:1) = ones
+        tempBuff32(6:1) = tens  
+        tempBuff32(5:1) = hundreds
+        ones = ones + 1
+        call system_endpoint_tx(system_endpoint_uart1, 10, tempBuff32(0:10)) # send index
+        # BUGBUG: increment index for debug to check timestamp function of electricimp
+        if (ones >= $3a) then
+            ones = $30
+            tens = tens + 1
+            if (tens >= $3a) then
+                tens = $30
+                hundreds = hundreds + 1
+                if (hundreds >= $3a) then
+                    hundreds = $30
+                end if # hundreds
+            end if # tens
+        end if # ones
         call system_endpoint_tx(system_endpoint_uart1, 7, "\x22MAC\x22:\x22") # \x22 is ASCII for "
         i(0:1) = 0
         j(0:1) = 0

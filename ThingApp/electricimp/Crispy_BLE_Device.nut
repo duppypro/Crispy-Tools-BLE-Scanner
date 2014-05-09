@@ -5,7 +5,7 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-04-29d"
+const versionString = "crispy BLE v00.01.2014-05-02a"
 impeeID <- hardware.getimpeeid() // cache the impeeID FIXME: is this necessary for speed?
 offsetMilliseconds <- 0 // set later to milliseconds % 1000 when time() rolls over //FIXME: need a better timesync solution here
 const sleepforTimeout = 60 // seconds idle before decrementing idleCount
