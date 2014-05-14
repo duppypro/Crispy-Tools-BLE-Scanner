@@ -168,6 +168,22 @@ event gap_scan_response(rssi, packet_type, sender, address_type, bond, data_len,
         tempBuff32(1:1) = tempInt32 + $30 # $30 is ASCII '0'
         call system_endpoint_tx(system_endpoint_uart1, 2, tempBuff32(0:2))
 
+        # send advertising data
+        call system_endpoint_tx(system_endpoint_uart1, 9, ",\x22data\x22:\x22") # \x22 is ASCII for "
+        i(0:1) = 0
+        j(0:1) = 0
+        while i(0:1) < data_len
+            tempInt32 = (data_data(i(0:1):1) >> 4) & $0f
+            tempBuff32(j(0:1):1) = tempInt32 + $30 + tempInt32/10*7
+            tempInt32 = data_data(i(0:1):1) & $0f
+            j(0:1) = j(0:1) + 1
+            tempBuff32(j(0:1):1) = tempInt32 + $30 + tempInt32/10*7
+            j(0:1) = j(0:1) + 1
+            i(0:1) = i(0:1) + 1
+        end while
+        call system_endpoint_tx(system_endpoint_uart1, j(0:1), tempBuff32(0:j(0:1)))
+        call system_endpoint_tx(system_endpoint_uart1, 1, "\x22") # ending quote
+
         call system_endpoint_tx(system_endpoint_uart1, 2, "}\n") # end JSON
 
         # advertisement packet found during scan
