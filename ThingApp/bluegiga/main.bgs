@@ -45,7 +45,7 @@ dim srDataBuff(31) # custom Advertisement or Scan Response data (overload param 
 event system_boot(major, minor, patch, build, ll_version, protocol, hw)
     tempBuff32(0:17) = "CRISPY Tools BLE "
 #CONSTRAINT: length 12   123456789012
-    tempBuff32(17:13) = "FW 140508b  \n" # __version__
+    tempBuff32(17:13) = "FW 140514a  \n" # __version__
     call system_endpoint_tx(system_endpoint_uart1, 30, tempBuff32(0:30))
     # write Firmware Revision local GATT attribute
     call attributes_write(c_firmware_revision, 0, 12, tempBuff32(17:12)) # __version__

@@ -38,7 +38,7 @@ myThingInfo <- {}
     myThingInfo.readme <- "crispy\r\nThis is a crispy HW BLE scanner."
 
 logCount <- 0 // only print log every once in awhile
-logMod <- 100 // 10 
+logMod <- 20 // 10 
 
 // helper variables ???
 

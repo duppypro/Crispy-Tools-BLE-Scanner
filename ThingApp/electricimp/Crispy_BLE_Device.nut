@@ -5,15 +5,14 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-05-02a"
+const versionString = "crispy BLE v00.01.2014-05-14a"
 impeeID <- hardware.getimpeeid() // cache the impeeID FIXME: is this necessary for speed?
-offsetMilliseconds <- 0 // set later to milliseconds % 1000 when time() rolls over //FIXME: need a better timesync solution here
+offsetMicros <- 0 // set later to microsseconds % 1000000 when time() rolls over //FIXME: need a better timesync solution here
 const sleepforTimeout = 60 // seconds idle before decrementing idleCount
 const idleCountMax = 240 //3 // number sleepforTimeout periods before server.sleepfor()
 const sleepforDuration = 36000//300 // seconds to stay in deep sleep (wakeup is a reboot)
 idleCount <- idleCountMax // Current count of idleCountMax timer
 
-fakemicros <- 42 // start at arbitrary time, inc to prevent identical mills timestamps
 active <- false
 
 // configuration variables
@@ -22,7 +21,6 @@ serialPort  <- hardware.uart1289
 spiPort     <- hardware.spi257
 button <- hardware.pin1
 
-
 // app specific globals
 
 ///////////////////////////////////////////////
@@ -30,12 +28,33 @@ button <- hardware.pin1
 
 // start with generic functions
 function timestamp() {
-    local t, m
-    t = time()
-    m = hardware.millis()
-    fakemicros = (fakemicros + 1) % 1000
-    return format("%010u%03u%03u", t, (m - offsetMilliseconds) % 1000, fakemicros)
-        // return milliseconds since Unix epoch 
+    local t, t2, m
+    t = time() // CONSTRAINT: t= and m= should be atomic but aren't
+    t2 = time()
+    m = hardware.micros()
+    if (t2 > t) { // check if time() seconds rolled over
+        offsetMicros = m % 1000000// re-calibrate offsetMicros
+        if (offsetMicros < 0) {
+            offsetMicros += 1000000 // Squirrel mod is remainder, not modulos
+        }
+        m = (m - offsetMicros) % 1000000
+        if (m < 0) {
+            m += 1000000 // Squirrel mod is remainder, not modulos
+        }
+    } else {
+        m = (m - offsetMicros) % 1000000
+        if (m < 0) {
+            m += 1000000 // Squirrel mod is remainder, not modulos
+        }
+        if (m < lastMicros && lastUTCSeconds == t2) {
+            // we rolled over and didn't catch it
+            t2 = t2 + 1
+        }
+    }
+    lastMicros = m
+    lastUTCSeconds = t2
+    return format("%010u%06u", t2, m)
+        // return microseconds since Unix epoch 
 }
 
 function checkActivity() {
@@ -146,12 +165,23 @@ server.log("connected to WiFi : " + imp.getbssid())
 // BUGBUG: below needed until newer firmware!?  See http://forums.electricimp.com/discussion/comment/4875#Comment_2714
 // imp.enableblinkup(true)
 
-local lastUTCSeconds = time()
-while(lastUTCSeconds == time()) {
+lastUTCSeconds <- 0
+newSeconds <- time()
+do {
+    lastUTCSeconds = newSeconds
+    newSeconds = time()
+    offsetMicros = hardware.micros()
+} while (newSeconds == lastUTCSeconds) // wait for seonds to roll over
+offsetMicros = hardware.micros() % 1000000
+if (offsetMicros < 0) {
+    offsetMicros += 1000000 // Squirrel mod is remainder, not modulos
 }
-offsetMilliseconds = hardware.millis() % 1000
-// FIXME: should re-calibrate offset periodically, not just on boot
-server.log("offsetMilliseconds = " + offsetMilliseconds)
+lastUTCSeconds = newSeconds
+lastMicros <- offsetMicros
+
+// this re-calibrates if timestamp() is read at a seonds rollover
+// FIXME: re-calibrate more often?
+server.log("offsetMicros = " + offsetMicros)
 
 serialStringMaxLength <- 80
 serialString <- blob(0)
