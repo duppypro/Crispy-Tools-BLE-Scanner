@@ -5,7 +5,7 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-05-14a"
+const versionString = "crispy BLE v00.01.2014-05-14b"
 impeeID <- hardware.getimpeeid() // cache the impeeID FIXME: is this necessary for speed?
 offsetMicros <- 0 // set later to microsseconds % 1000000 when time() rolls over //FIXME: need a better timesync solution here
 const sleepforTimeout = 60 // seconds idle before decrementing idleCount
@@ -114,7 +114,7 @@ function buttonPress() {
 
 function processCommand(commandString, port) {
     local message = {
-        "t" : timestamp()
+        "t" : lastJSONtime
     }
     
     message[port] <- commandString    
@@ -126,14 +126,17 @@ function processCommand(commandString, port) {
 
 function readSerialPort() {
     // Get first byte
-    local timeKey = timestamp()
+    // local timeKey = timestamp()
     local b = serialPort.read()
 
     // server.log("activity on serial port")
     active = true // signal activity to keep imp awake
     while (b != -1) {
         // process byte
-        if (b != '\r') {   
+        if (b != '\r') {
+            if (b == '{') {
+                lastJSONtime = timestamp()
+            }
             serialString.writen(b, 'b')
             // server.log("b = " + b + ", serialString.len() = " + serialString.len())
             if ( (serialString.tell() >= serialStringMaxLength)
@@ -178,6 +181,7 @@ if (offsetMicros < 0) {
 }
 lastUTCSeconds = newSeconds
 lastMicros <- offsetMicros
+lastJSONtime <- timestamp()
 
 // this re-calibrates if timestamp() is read at a seonds rollover
 // FIXME: re-calibrate more often?

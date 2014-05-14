@@ -29,6 +29,7 @@ dim battLevel(1)
 const testInterval = 32768
 
 dim crispyState
+
 const uninitState          = 0 # init
 const idleState            = 1 # wait for start scan command
 const scanState            = 2 # scan and report on UART to electric imp
@@ -45,7 +46,7 @@ dim srDataBuff(31) # custom Advertisement or Scan Response data (overload param 
 event system_boot(major, minor, patch, build, ll_version, protocol, hw)
     tempBuff32(0:17) = "CRISPY Tools BLE "
 #CONSTRAINT: length 12   123456789012
-    tempBuff32(17:13) = "FW 140514a  \n" # __version__
+    tempBuff32(17:13) = "FW 140514b  \n" # __version__
     call system_endpoint_tx(system_endpoint_uart1, 30, tempBuff32(0:30))
     # write Firmware Revision local GATT attribute
     call attributes_write(c_firmware_revision, 0, 12, tempBuff32(17:12)) # __version__
@@ -137,7 +138,6 @@ event system_boot(major, minor, patch, build, ll_version, protocol, hw)
     # put module into discoverable/connectable mode (with user-defined advertisement data)
     # on second thought, do not do this #call gap_set_mode(gap_user_data, gap_undirected_connectable)
 
-
     call gap_set_scan_parameters(10 * $10, 10 * $10, 0) # $10 is 10msec
     call gap_discover(gap_discover_generic) # start scanning
 
@@ -167,6 +167,7 @@ event gap_scan_response(rssi, packet_type, sender, address_type, bond, data_len,
         tempInt32 = tempInt32 - (tempInt32 / 10) * 10
         tempBuff32(1:1) = tempInt32 + $30 # $30 is ASCII '0'
         call system_endpoint_tx(system_endpoint_uart1, 2, tempBuff32(0:2))
+
         call system_endpoint_tx(system_endpoint_uart1, 2, "}\n") # end JSON
 
         # advertisement packet found during scan
@@ -191,7 +192,7 @@ event gap_scan_response(rssi, packet_type, sender, address_type, bond, data_len,
 #            i(0:1) = i(0:1) + ad_field_length + 1
 #        end while
     end if # packet type 0
-end
+end # event gap_scan_response
 
 # Timer expired event handler 
 # Poll flash and if it’s ready, and send response to the remote device (DFU application)

@@ -5,8 +5,7 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-05-07a"
-fakeMillis <- 42 // fake out millisecond times for debugging
+const versionString = "crispy BLE v00.01.2014-05-14a"
 
 ///////////////////////////////////////////////
 // constants for Firebase
@@ -38,7 +37,7 @@ myThingInfo <- {}
     myThingInfo.readme <- "crispy\r\nThis is a crispy HW BLE scanner."
 
 logCount <- 0 // only print log every once in awhile
-logMod <- 20 // 10 
+logMod <- 1 // 10 
 
 // helper variables ???
 
@@ -122,9 +121,7 @@ device.on("event", function(table) {
         } catch (ex) {
         }
         if ((logCount++ % logMod) == 0){
-            // server.log("@" + timeKey + " Device sent\r\n" + http.jsonencode(table))
-            // server.log(table.scanResponseBLE)
-            server.log("@" + timeKey + " Device sent\r\n" + http.jsonencode(table.scanResponseBLE))
+            server.log("@" + timeKey + http.jsonencode(table.scanResponseBLE))
         } else {
             // server.log("@")
         }
