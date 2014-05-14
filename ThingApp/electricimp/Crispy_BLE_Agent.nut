@@ -5,7 +5,7 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-05-14a"
+const versionString = "crispy BLE v00.01.2014-05-14b"
 
 ///////////////////////////////////////////////
 // constants for Firebase
@@ -29,15 +29,16 @@ https://crispy-thingstream-bigdata.firebaseio.com/
 */
 
 // which firebase to use
-const refNameServerRoot = "https://crispy-thingstream-name-server.firebaseio.com/"
-const refBigDataRoot = "https://crispy-thingstream-bigdata.firebaseio.com/allDataBySessionRef/" // FIXME: read this from Stream Info
-const refAllSessionsByStreamUuid = "https://crispy-thingstream-name-server.firebaseio.com/allSessionsUrl/allSessionsByStreamUuid/" // FIXME: read this with GET from https://crispy-thingstream-name-server.firebaseio.com/allStreamInfoByUuid/crispy-impv00-hDzxieGblkLa-scanResponseBLE/allSessionsRef/.json
+const tsnsRootURL = "https://crispy-thingstream-name-server.firebaseio.com/"
+const bigDataRootURL = "https://crispy-thingstream-bigdata.firebaseio.com/" // FIXME: read this from Stream Info
+const allDataBySessionRefURL = "https://crispy-thingstream-bigdata.firebaseio.com/allDataBySessionRef/" // FIXME: read this from Stream Info
+const allSessionsByStreamUuidURL = "https://crispy-thingstream-name-server.firebaseio.com/allSessionsUrl/allSessionsByStreamUuid/" // FIXME: read this with GET from https://crispy-thingstream-name-server.firebaseio.com/allStreamInfoByUuid/crispy-impv00-hDzxieGblkLa-scanResponseBLE/allSessionsRef/.json
 const uuidPrefix = "crispy-impv00-" // add prefix so that crispy UUIDs do not collide with other Thing UUIDs
 myThingInfo <- {}
     myThingInfo.readme <- "crispy\r\nThis is a crispy HW BLE scanner."
 
 logCount <- 0 // only print log every once in awhile
-logMod <- 1 // 10 
+logMod <- 12 // 10 
 
 // helper variables ???
 
@@ -149,7 +150,7 @@ server.log("Agent SW version : " + imp.getsoftwareversion())
 impAgentURLRoot <- http.agenturl()
 impAgentURLRoot = impAgentURLRoot.slice(0, impAgentURLRoot.find("/", "https://".len()) + 1)
 timeSessionStart <- timestamp()
-server.log("refBigDataRoot__________ : " + refBigDataRoot)
+server.log("bigDataRootURL__________ : " + bigDataRootURL)
 thingUuid <- uuidPrefix + http.agenturl().slice(impAgentURLRoot.len())
 server.log("thingUuid_______________ : " + thingUuid)
 server.log("timeSessionStart________ : " + timeSessionStart)
@@ -158,12 +159,12 @@ streamUuidByName <- {
     "healthStatus" : "healthStatus-" + thingUuid,
 }
 refBigDataByName <- {
-    "scanResponseBLE" : refBigDataRoot + streamUuidByName["scanResponseBLE"] + "/" + timeSessionStart,
-    "healthStatus" : refBigDataRoot + streamUuidByName["healthStatus"] + "/" + timeSessionStart,
+    "scanResponseBLE" : allDataBySessionRefURL + streamUuidByName["scanResponseBLE"] + "/" + timeSessionStart,
+    "healthStatus" : allDataBySessionRefURL + streamUuidByName["healthStatus"] + "/" + timeSessionStart,
 }
 refAllSessionsByName <- {
-    "scanResponseBLE" : refAllSessionsByStreamUuid + streamUuidByName["scanResponseBLE"] + "/" + timeSessionStart,
-    "healthStatus" : refAllSessionsByStreamUuid + streamUuidByName["healthStatus"] + "/" + timeSessionStart,
+    "scanResponseBLE" : allSessionsByStreamUuidURL + streamUuidByName["scanResponseBLE"] + "/" + timeSessionStart,
+    "healthStatus" : allSessionsByStreamUuidURL + streamUuidByName["healthStatus"] + "/" + timeSessionStart,
 }
 // initialize new sessions for each out Stream
 foreach (key, val in refAllSessionsByName) {

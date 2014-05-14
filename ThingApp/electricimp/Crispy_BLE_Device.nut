@@ -5,7 +5,7 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-05-14b"
+const versionString = "crispy BLE v00.01.2014-05-14c"
 impeeID <- hardware.getimpeeid() // cache the impeeID FIXME: is this necessary for speed?
 offsetMicros <- 0 // set later to microsseconds % 1000000 when time() rolls over //FIXME: need a better timesync solution here
 const sleepforTimeout = 60 // seconds idle before decrementing idleCount
@@ -187,7 +187,7 @@ lastJSONtime <- timestamp()
 // FIXME: re-calibrate more often?
 server.log("offsetMicros = " + offsetMicros)
 
-serialStringMaxLength <- 80
+serialStringMaxLength <- 120
 serialString <- blob(0)
 seriialLastTime <- timestamp()
 serialPort.configure(230400, 8, PARITY_NONE, 1, NO_CTSRTS, readSerialPort)

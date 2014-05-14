@@ -34,6 +34,8 @@ const uninitState          = 0 # init
 const idleState            = 1 # wait for start scan command
 const scanState            = 2 # scan and report on UART to electric imp
 
+const slowdownUART = 10
+
 # Timer Handles
 #const OTATimerHandle        = 0 # defined in otaFW.bgs
 const testTimerHandle        = 1
@@ -46,7 +48,7 @@ dim srDataBuff(31) # custom Advertisement or Scan Response data (overload param 
 event system_boot(major, minor, patch, build, ll_version, protocol, hw)
     tempBuff32(0:17) = "CRISPY Tools BLE "
 #CONSTRAINT: length 12   123456789012
-    tempBuff32(17:13) = "FW 140514b  \n" # __version__
+    tempBuff32(17:13) = "FW 140514d  \n" # __version__
     call system_endpoint_tx(system_endpoint_uart1, 30, tempBuff32(0:30))
     # write Firmware Revision local GATT attribute
     call attributes_write(c_firmware_revision, 0, 12, tempBuff32(17:12)) # __version__
@@ -150,18 +152,27 @@ event gap_scan_response(rssi, packet_type, sender, address_type, bond, data_len,
         call system_endpoint_tx(system_endpoint_uart1, 1, "{") # send first { right away to set time stamp
         call system_endpoint_tx(system_endpoint_uart1, 7, "\x22MAC\x22:\x22") # \x22 is ASCII for "
         i(0:1) = 0
-        j(0:1) = 0
-        while i(0:1) < 6
-            tempInt32 = (sender(i(0:1):1) >> 4) & $0f
-            tempBuff32(j(0:1):1) = tempInt32 + $30 + tempInt32/10*7
-            tempInt32 = sender(i(0:1):1) & $0f
-            j(0:1) = j(0:1) + 1
-            tempBuff32(j(0:1):1) = tempInt32 + $30 + tempInt32/10*7
-            j(0:1) = j(0:1) + 1
+        while i(0:1) < slowdownUART
             i(0:1) = i(0:1) + 1
         end while
-        call system_endpoint_tx(system_endpoint_uart1, 12, tempBuff32(0:12))
+        i(0:1) = 0
+        while i(0:1) < 6
+            tempInt32 = (sender(i(0:1):1) >> 4) & $0f
+            tempBuff32(0:1) = tempInt32 + $30 + tempInt32/10*7
+            tempInt32 = sender(i(0:1):1) & $0f
+            tempBuff32(1:1) = tempInt32 + $30 + tempInt32/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 2, tempBuff32(0:2))
+            i(0:1) = i(0:1) + 1
+        end while
+        i(0:1) = 0
+        while i(0:1) < slowdownUART
+            i(0:1) = i(0:1) + 1
+        end while
         call system_endpoint_tx(system_endpoint_uart1, 10, "\x22,\x22rssi\x22:-")
+        i(0:1) = 0
+        while i(0:1) < slowdownUART
+            i(0:1) = i(0:1) + 1
+        end while
         tempInt32 = 256 - rssi
         tempBuff32(0:1) = (tempInt32 / 10) + $30 # $30 is ASCII '0'
         tempInt32 = tempInt32 - (tempInt32 / 10) * 10
@@ -169,22 +180,35 @@ event gap_scan_response(rssi, packet_type, sender, address_type, bond, data_len,
         call system_endpoint_tx(system_endpoint_uart1, 2, tempBuff32(0:2))
 
         # send advertising data
-        call system_endpoint_tx(system_endpoint_uart1, 9, ",\x22data\x22:\x22") # \x22 is ASCII for "
         i(0:1) = 0
-        j(0:1) = 0
-        while i(0:1) < data_len
-            tempInt32 = (data_data(i(0:1):1) >> 4) & $0f
-            tempBuff32(j(0:1):1) = tempInt32 + $30 + tempInt32/10*7
-            tempInt32 = data_data(i(0:1):1) & $0f
-            j(0:1) = j(0:1) + 1
-            tempBuff32(j(0:1):1) = tempInt32 + $30 + tempInt32/10*7
-            j(0:1) = j(0:1) + 1
+        while i(0:1) < slowdownUART
             i(0:1) = i(0:1) + 1
         end while
-        call system_endpoint_tx(system_endpoint_uart1, j(0:1), tempBuff32(0:j(0:1)))
+        call system_endpoint_tx(system_endpoint_uart1, 9, ",\x22data\x22:\x22") # \x22 is ASCII for "
+        i(0:1) = 0
+        while i(0:1) < data_len
+            tempInt32 = (data_data(i(0:1):1) >> 4) & $0f
+            tempBuff32(0:1) = tempInt32 + $30 + tempInt32/10*7
+            tempInt32 = data_data(i(0:1):1) & $0f
+            tempBuff32(1:1) = tempInt32 + $30 + tempInt32/10*7
+            call system_endpoint_tx(system_endpoint_uart1, 2, tempBuff32(0:2))
+            i(0:1) = i(0:1) + 1
+        end while
+        i(0:1) = 0
+        while i(0:1) < slowdownUART
+            i(0:1) = i(0:1) + 1
+        end while
         call system_endpoint_tx(system_endpoint_uart1, 1, "\x22") # ending quote
 
+        i(0:1) = 0
+        while i(0:1) < slowdownUART
+            i(0:1) = i(0:1) + 1
+        end while
         call system_endpoint_tx(system_endpoint_uart1, 2, "}\n") # end JSON
+        i(0:1) = 0
+        while i(0:1) < slowdownUART
+            i(0:1) = i(0:1) + 1
+        end while
 
         # advertisement packet found during scan
         # NOTE: LITTLE-ENDIAN BYTE ORDER

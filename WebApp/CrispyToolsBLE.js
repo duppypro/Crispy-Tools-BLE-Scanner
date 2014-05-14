@@ -5,7 +5,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // human readable version of this script
-var scriptVersion = 'CrispyToolsBLE.js v2014-05-02a'
+var scriptVersion = 'CrispyToolsBLE.js v2014-05-14a'
 
 ///////////////////////////////////////////////////////////////////////////////
 // firebase references
@@ -14,17 +14,24 @@ var rootRef = 'https://ibeacon-sequence-tsns.firebaseio.com/' // URL of the fire
 var refThingstreamServer = 'https://crispy-thingstream-name-server.firebaseio.com' // URL of the firebase
 var tsVizD3Sel = d3.select('#TSViz') // d3 selection that holds all visualizations
 var logD3Sel = d3.select('#TSLog') // d3 selection for log messages
-var d3SelButtons // DOM element for Buttons
-var d3SelThingVizs // DOM element for all ThingStream Visualizations
-var TEXT_HEIGHT = 16 // default guess, this is updated later in page load
-var estimatedServerTimeOffset = 0 // milliseconds
+var buttonsD3Sel // DOM element for Buttons
+var vizsD3Sel // DOM element for all ThingStream Visualizations
+var lineHeightGLobal = 18 // default guess, this is updated later in page load
+var firebaseColor = { // local presentation colors FIXME: move to firebase Viz description?
+		changed : '#f8c136',
+		added : 'limegreen', // '#81b23c',
+		deleted : '#ed1c23',
+		moved : '#68b2d9',
+		normal : '#c0c0c0'
+	}
+var serverTimeOffset = 0 // milliseconds
 var serverTimeOffsetRef = new Firebase( [rootRef, '.info', 'serverTimeOffset'] .join('/') )
-var refAllStreamInfoByUuid = new Firebase(fbUrl([
+var allStreamInfoByUuidRef = new Firebase( [
 		refThingstreamServer,	'allStreamInfoByUuid'
-	]))
-var refAllThingInfoByUuid = new Firebase(fbUrl([
+	] .join('/'))
+var allThingInfoByUuidRef = new Firebase( [
 		refThingstreamServer,	'allThingInfoByUuid'
-	]))
+	] .join('/'))
 var allVizRefArraysByThingUuid = {} // save refs globally for cleanup when removed
 var allVizd3SelArraysByThingUuid = {} // save dom elements globally for cleanup when removed
 var debugLogVizInfo = { // TODO: get these *Info objects from cloud Viz name-server
@@ -41,25 +48,27 @@ var debugLogVizInfoB = { // TODO: get these *Info objects from cloud Viz name-se
 	}
 
 function serverNow() {
-	return new Date().getTime() + estimatedServerTimeOffset
+	return new Date().getTime() + serverTimeOffset
 }
 
-function fbUrl(pathArray) { // helper to construct URL from list of path parts
-	return pathArray.join('/')
+function getKey(keyName) {
+	// use with selection.data(d3Data, getKey('foo')) or other
+	return function (datum) {
+		return datum[keyName]
+	}
 }
 
 function compareKey(keyName, sortOrder, returnObject) {
 	// sortOrder is >0 for ascending, <0 for descending (reversed), ==0 for no change defaults to 1
 	if (returnObject) {
-		returnObject.less = 0
-		returnObject.more = 0
+		returnObject.swap = 0
 		returnObject.equal = 0
 	}
 	return function (d1, d2) {
 		var result = (sortOrder || 1) > 0 ? d1[keyName] - d2[keyName] : sortOrder < 0 ? d2[keyName] - d1[keyName] : 0
 		if (returnObject) {
-			result < 0 ? returnObject.less++
-				: result > 0 ? returnObject.more++
+			result < 0 ? true
+				: result > 0 ? returnObject.swap++
 					: returnObject.equal++  
 		}
 		return result
@@ -100,19 +109,19 @@ function appendList(d3Selection, info) {
 	sel = d3Selection
 		.append('div')
 		.attr({
-			class : 'col-6'
+			class : 'col-sm-6'
 		})
 	sel
 		.append('div')
 		.attr({
 			name : info.VizTitle,
-			class : 'col-6 text-center'
+			class : 'col-sm-6 text-center'
 		})
 	sel
 		.append('div')		
 		.attr({
 			name : info.VizName,
-			class : 'col-6',
+			class : 'col-sm-6',
 			style : 'resize:vertical;overflow:auto;height:248px'
 		})
 }
@@ -220,7 +229,7 @@ function onValueDebugLog(snap) {
 
 function addVizListFromThis() {
 	console.log('addVizListFromThis : ' + this.streamUuid)
-	refAllStreamInfoByUuid
+	allStreamInfoByUuidRef
 	.child(this.streamUuid)
 	.child('allSessionsRef')
 	.once(
@@ -282,11 +291,11 @@ function addVizFromThingUuid(thingUuid, info) {
 
 	// add Name
 	context.d3SelThing =
-		d3SelThingVizs // cache <div> element for this thingUuid
+		vizsD3Sel // cache <div> element for this thingUuid
 			.append('div')
 			.attr({
 				thingUuid : thingUuid,
-				class : 'panel panel-default col-12'
+				class : 'panel panel-default col-sm-12'
 			})
 	allVizd3SelArraysByThingUuid[thingUuid].push(context.d3SelThing)
 	
@@ -299,7 +308,7 @@ function addVizFromThingUuid(thingUuid, info) {
 	context.d3SelThing.select('[name=thingName]')
 		.text(info.name || thingUuid)
 
-	refAllOutStreamUuidsByName = refAllThingInfoByUuid.child(thingUuid).child('allOutStreamUuidsByName')
+	refAllOutStreamUuidsByName = allThingInfoByUuidRef.child(thingUuid).child('allOutStreamUuidsByName')
 	allVizRefArraysByThingUuid[thingUuid].push(refAllOutStreamUuidsByName)
 
 	refAllOutStreamUuidsByName
@@ -341,6 +350,18 @@ function addVizFromThingUuid(thingUuid, info) {
 	// delete context.recentDebugLogs // FIXME: Why did I need this?  I forgot.
 } // addVizFromThingUuid(...
 
+function onClickButtonThingInfo() {
+	var thingUuid = d3.select(this).attr('thingUuid')
+	var info = d3.select(this).datum().info
+	console.log('clicked button thingUuid = ' + thingUuid)
+	if (this.classList.toggle('btn-primary')) {
+		// create new Viz dom elements and fb callbacks
+		addVizFromThingUuid(thingUuid, info)
+	} else {
+		removeVizByThingUuid(thingUuid)
+	}
+}
+
 // code starts here
 logD3Sel.append('div').text(scriptVersion)
 
@@ -356,7 +377,7 @@ logD3Sel.append('div').text('Loading Firebase...')
 // These firebase refs exist as long as the page is loaded.
 // No need to save them for later .off() calls
 	// serverTimeOffsetRef - used for time sync.  could be better
-	// refAllThingInfoByUuid
+	// allThingInfoByUuidRef
 	
 serverTimeOffsetRef.on('value', function (snap) {
 // minimal effort here to sync local time and server time.
@@ -378,22 +399,22 @@ serverTimeOffsetRef.on('value', function (snap) {
 		.style({'background-color' : 'white'})
 })
 
-refAllThingInfoByUuid.on(
+allThingInfoByUuidRef.on(
 	'value',
 	function(snap) {
 		// clear existing
-		d3SelViz.selectAll('*').remove()
-		d3SelButtons = d3SelViz
+		tsVizD3Sel.selectAll('*').remove()
+		buttonsD3Sel = tsVizD3Sel
 			.append('div')
 			.attr({
-				class : 'panel panel-default col-12'
+				class : 'panel panel-default col-sm-12'
 			})
 			.append('div')
 			.attr({
 				class : 'panel-body btn-group',
 				name : 'buttonContainer'
 			})
-		d3SelThingVizs = d3SelViz
+		vizsD3Sel = tsVizD3Sel
 			.append('div')
 			.attr({
 				name : 'thingUuidContainer'
@@ -404,28 +425,26 @@ refAllThingInfoByUuid.on(
 		// add new Viz for each thingUuid	
 		for (var thingUuid in snap.val()) {
 			var info = snap.val()[thingUuid]
-			d3SelButtons
-				.append('button')
-				.attr({
-					thingUuid : thingUuid,
-					style : 'margin : 0px 2px;',
-					class : 'btn-small col-4'
-				})
-				.text(info.name || thingUuid)
-				.on('click', function() {
-					var thingUuid = d3.select(this).attr('thingUuid')
-					var info = snap.val()[thingUuid] // FIXME: how is snap included in context when referenced but not when not referenced and why is info not included in context
-					console.log('clicked button thingUuid = ' + thingUuid)
-					if (this.classList.toggle('btn-primary')) {
-						// create new Viz dom elements and fb callbacks
-						addVizFromThingUuid(thingUuid, info)
-					} else {
-						removeVizByThingUuid(thingUuid)
-					}
-				})
+
+			if (info.allOutStreamUuidsByName.scanResponseBLE) {
+				var d3Sel = buttonsD3Sel
+					.append('button')
+					.attr({
+						thingUuid : thingUuid,
+						style : 'margin : 0px 2px;',
+						class : 'btn-small col-sm-4'
+					})
+					.text(info.name || thingUuid)
+					.datum({
+						info : info
+					})
+					.on('click', onClickButtonThingInfo)
+
+				onClickButtonThingInfo.call(d3Sel.node())
+			}
 		}
 	}
-)//refAllThingInfoByUuid.on('value'...
+)//allThingInfoByUuidRef.on('value'...
 
 }) ()
 
