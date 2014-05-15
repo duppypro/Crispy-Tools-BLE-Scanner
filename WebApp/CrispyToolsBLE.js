@@ -5,7 +5,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // human readable version of this script
-var scriptVersion = 'CrispyToolsBLE.js v2014-05-14a'
+var scriptVersion = 'CrispyToolsBLE.js v2014-05-14b'
 
 ///////////////////////////////////////////////////////////////////////////////
 // firebase references
@@ -26,26 +26,96 @@ var firebaseColor = { // local presentation colors FIXME: move to firebase Viz d
 	}
 var serverTimeOffset = 0 // milliseconds
 var serverTimeOffsetRef = new Firebase( [rootRef, '.info', 'serverTimeOffset'] .join('/') )
-var allStreamInfoByUuidRef = new Firebase( [
-		refThingstreamServer,	'allStreamInfoByUuid'
-	] .join('/'))
-var allThingInfoByUuidRef = new Firebase( [
-		refThingstreamServer,	'allThingInfoByUuid'
-	] .join('/'))
+var allStreamInfoByUuidRef = new Firebase( [refThingstreamServer,	'allStreamInfoByUuid'] .join('/'))
+var allThingInfoByUuidRef = new Firebase( [refThingstreamServer,	'allThingInfoByUuid'] .join('/'))
 var allVizRefArraysByThingUuid = {} // save refs globally for cleanup when removed
 var allVizd3SelArraysByThingUuid = {} // save dom elements globally for cleanup when removed
-var debugLogVizInfo = { // TODO: get these *Info objects from cloud Viz name-server
-		limit : 50,
-		title : 'Debug Log from UART A (imp pin 7)',
-		VizName : 'debugLog',
-		VizTitle : 'debugLogTitle'
+var scanResponseBLEVizInfo = { // TODO: get these *Info objects from cloud Viz name-server
+		limit : 100,
+		title : 'BLE advertisements',
+		VizName : 'BLEAdvPackets',
+		VizTitle : 'scanResponseBLETitle'
 	}
-var debugLogVizInfoB = { // TODO: get these *Info objects from cloud Viz name-server
-		limit : 50,
-		title : 'Debug Log from UART B (imp pin 9)',
-		VizName : 'debugLogB',
-		VizTitle : 'debugLogBTitle'
+var healthStatusVizInfo = { // TODO: get these *Info objects from cloud Viz name-server
+		limit : 100,
+		title : 'Battery',
+		VizName : 'healthBattLevel',
+		VizTitle : 'healthStatusTitle'
 	}
+
+function throttleFunction(func, wait, options) {
+    var context, args, result;
+    var timeout = null;
+    var previous = 0;
+    options || (options = {});
+    var later = function() {
+      previous = options.leading === false ? 0 : new Date;
+      timeout = null;
+  		// console.log('throttleFunction Later', func.name, context, args)
+      result = func.apply(context, args);
+      context = args = null;
+    };
+    return function() {
+      var now = new Date;
+      if (!previous && options.leading === false) previous = now;
+      var remaining = wait - (now - previous);
+      context = this;
+      args = arguments;
+      if (remaining <= 0) {
+        clearTimeout(timeout);
+        timeout = null;
+        previous = now;
+  		// console.log('throttleFunction Immediate', func.name, 'remaining', remaining, context, args)
+        result = func.apply(context, args);
+        context = args = null;
+      } else if (!timeout && options.trailing !== false) {
+        timeout = setTimeout(later, remaining);
+      }
+      // return result;
+      return timeout;
+    };
+};
+
+function shiftClickDebug(d, i) {
+// log debugging info when shiftClick on an element
+	if (d3.event.shiftKey) {
+		console.log(i, this)
+		console.log(d)
+		d3.event.stopPropagation()
+	}
+}
+
+function authDeclined(err) {
+	console.log('Firebase callback not authorized.')
+	console.log(this)
+	console.log(err)
+}
+
+function d3DataFromJSON(snapVal, keyName, filterFunction) {
+	var profNow = new Date
+	var mapD3Data = d3.map(snapVal) // FIXME: PERF: this is likely the slow part.  can I make it faster?
+	// see https://github.com/mbostock/d3/wiki/Arrays#wiki-d3_map
+	var result
+
+	mapD3Data.entries().forEach(function (entry) {
+		var datum = entry.value
+
+		if (!filterFunction || filterFunction(datum)) { // if filterFunction exists, check it.
+			datum[keyName] = entry.key // copy the keyName into the object for later access by d3 operations
+		} else {
+			mapD3Data.remove(entry.key) // don't include this object in d3Data
+		}
+	})
+
+	result = mapD3Data.values() // d3 wants data in an array of objects
+
+	profNow = (new Date) - profNow 
+	if (profNow > 20) {
+		console.log('profNow: d3DataFromJSON ' + profNow + 'msec')
+	}
+
+	return result
+}
 
 function serverNow() {
 	return new Date().getTime() + serverTimeOffset
@@ -59,7 +129,7 @@ function getKey(keyName) {
 }
 
 function compareKey(keyName, sortOrder, returnObject) {
-	// sortOrder is >0 for ascending, <0 for descending (reversed), ==0 for no change defaults to 1
+	// sortOrder is >=0 for ascending, <0 for descending (reversed), ==0 for no change defaults to 1
 	if (returnObject) {
 		returnObject.swap = 0
 		returnObject.equal = 0
@@ -109,33 +179,39 @@ function appendList(d3Selection, info) {
 	sel = d3Selection
 		.append('div')
 		.attr({
-			class : 'col-sm-6'
+			class : 'col-sm-12'
 		})
 	sel
 		.append('div')
 		.attr({
 			name : info.VizTitle,
-			class : 'col-sm-6 text-center'
+			class : 'col-sm-12 text-center'
 		})
 	sel
 		.append('div')		
 		.attr({
 			name : info.VizName,
-			class : 'col-sm-6',
+			class : 'col-sm-12',
 			style : 'resize:vertical;overflow:auto;height:248px'
 		})
 }
 
-function appendDebugLog(d3Selection) { // use with d3.call()
-	appendList(d3Selection, debugLogVizInfo)
-	d3Selection.select('[name=' + debugLogVizInfo.VizTitle + ']')
-		.text(debugLogVizInfo.title)	
+// function appendDebugLog(d3Selection) { // use with d3.call()
+// 	appendList(d3Selection, debugLogVizInfo)
+// 	d3Selection.select('[name=' + debugLogVizInfo.VizTitle + ']')
+// 		.text(debugLogVizInfo.title)	
+// }
+
+function appendHealthStatus(d3Selection) { // use with d3.call()
+	appendList(d3Selection, healthStatusVizInfo)
+	d3Selection.select('[name=' + healthStatusVizInfo.VizTitle + ']')
+		.text(healthStatusVizInfo.title)	
 }
 
-function appendDebugLogB(d3Selection) { // use with d3.call()
-	appendList(d3Selection, debugLogVizInfoB)
-	d3Selection.select('[name=' + debugLogVizInfoB.VizTitle + ']')
-		.text(debugLogVizInfoB.title)	
+function appendScanResponseBLE(d3Selection) { // use with d3.call()
+	appendList(d3Selection, scanResponseBLEVizInfo)
+	d3Selection.select('[name=' + scanResponseBLEVizInfo.VizTitle + ']')
+		.text(scanResponseBLEVizInfo.title)	
 }
 
 function redrawList(d3Data, textFromD3Data) {
@@ -157,7 +233,7 @@ function redrawList(d3Data, textFromD3Data) {
 	sessions.enter()
 		.append('div')
 		.attr({
-			style : "font:'Lucida Console';font-size:9pt;background:#000;color:#0cd"
+			style : "font:'Lucida Console';font-family:monospace;font-size:9pt;background:#000;color:#0cd"
 		})
 		.text(textFromD3Data)
 
@@ -168,13 +244,57 @@ function redrawList(d3Data, textFromD3Data) {
 		.remove()
 
 	d.node().scrollTop = d.node().scrollHeight
-}
+} // redrawList()
+
+function redrawBLEList(d3Data, textFromD3Data) {
+	var d
+	var sessions
+
+	d = this.d3SelThing
+		.selectAll('[name=' + this.info.VizName + ']')
+
+	sessions = d
+		.selectAll('div')
+		.data(
+			d3Data,
+			function (d) {
+				return d.MAC
+			}
+		)
+
+	sessions.enter()
+		.append('div')
+		.attr({
+			style : "font:'Lucida Console';font-family:monospace;font-size:9pt;background:#000;color:#0cd"
+		})
+		.text(textFromD3Data)
+
+	sessions
+		.sort(compareKey('rssi', -1))
+
+	sessions.exit()
+		.remove()
+
+	d.node().scrollTop = d.node().scrollHeight
+} // redrawBLEList()
 
 function redrawDebugLog(d3Data) { // called on data change
 	redrawList.call(this, d3Data, function (d) {
 			return millisToLocalTimeStringFriendly(d.timeSessionStart) + '> ' + d.string
 		})
 } //redrawDebugLog()
+
+function redrawHealthStatus(d3Data) { // called on data change
+	redrawList.call(this, d3Data, function (d) {
+			return millisToLocalTimeStringFriendly(d.timeSessionStart) + '> ' + d.string
+		})
+} //redrawHealthStatus()
+
+function redrawScanResponseBLE(d3Data) { // called on data change
+	redrawBLEList.call(this, d3Data, function (d) {
+			return d.MAC + ' ' + d.rssi + ' ' + d.data
+		})
+} //redrawScanResponseBLE()
 
 function removeVizByThingUuid(thingUuid) {
 	// cancel all firebase callbacks that addVizFromThingUuid() created
@@ -213,7 +333,7 @@ function convertFBSnapToD3Data(snap) {
 	for (var i = 0, l = keyArray.length; i < l; i++) {
 		var t = keyArray[i]
 		d3Data2.push({
-			string : v[t],
+			obj : v[t],
 			timeSessionStart : t
 		})
 	}
@@ -222,9 +342,57 @@ function convertFBSnapToD3Data(snap) {
 	return d3Data2
 }
 
-function onValueDebugLog(snap) {
+function convertFBSnapToBLEData(snap) {
+	var d3Data
+	var d3Data2
+	var BLEData
+	var v = snap.val()
+	var keyArray
+	var startTime
+
+	// d3Data = []
+	// startTime = new Date()
+	// for(var timeSessionStart in v) { // convert JSON to array for use by d3
+	// 	var obj = {}
+	// 	obj.string = v[timeSessionStart]
+	// 	// move timestamp form key name into object then push on the array
+	// 	obj.timeSessionStart = timeSessionStart // allready in absolute milliseconds
+	// 	d3Data.push(obj)
+	// }
+	// console.log('for(var ... in... ) = ' + (new Date() - startTime))
+
+	BLEData = {}
+	// startTime = new Date()
+	keyArray = Object.keys(v)
+	for (var i = 0, l = keyArray.length; i < l; i++) {
+		var t = keyArray[i]
+		var obj = v[t]
+
+		BLEData[obj.MAC] = obj
+	}
+	// console.log('Object.keys() = ' + (new Date() - startTime))
+
+	d3Data2 = []
+	for (var key in BLEData) {
+		d3Data2.push(BLEData[key])
+	}
+
+	return d3Data2
+}
+
+// function onValueDebugLog(snap) {
+// 	var d3Data = convertFBSnapToD3Data(snap)
+// 	redrawDebugLog.call(this, d3Data)
+// }
+
+function onValueHealthStatus(snap) {
 	var d3Data = convertFBSnapToD3Data(snap)
 	redrawDebugLog.call(this, d3Data)
+}
+
+function onValueScanResponseBLE(snap) {
+	var BLEData = convertFBSnapToBLEData(snap)
+	redrawScanResponseBLE.call(this, BLEData)
 }
 
 function addVizListFromThis() {
@@ -252,28 +420,21 @@ function addVizListFromThis() {
 					}
 					refAllItems = new Firebase(obj['__REF__'])
 					allVizRefArraysByThingUuid[this.thingUuid].push(refAllItems)
-					console.log("Match? " + this.streamUuid + " and " + this.onValueFunction)
 					refAllItems
 					.endAt()
 					.limit(this.info.limit)
 					.on(
 						'value',
 						this.onValueFunction,
-						function function_name (argument) {
-							// callback canceled...
-						},
+						authDeclined,
 						this
 					)
 				},
-				function function_name (argument) {
-					// callback canceled...
-				},
+				authDeclined,
 				this
 			)
 		},
-		function function_name (argument) {
-			// callback canceled...
-		},
+		authDeclined,
 		this
 	)
 
@@ -317,33 +478,31 @@ function addVizFromThingUuid(thingUuid, info) {
 		function (snap) {
 			for (var name in snap.val()) {
 				this.streamUuid = snap.val()[name]
-				if (name == 'debugLog') {
+				if (name == 'scanResponseBLE') {
 					this.d3SelThing
-						.call(appendDebugLog)
+						.call(appendScanResponseBLE)
 					addVizListFromThis.call({
 						d3SelThing : this.d3SelThing,
 						thingUuid : this.thingUuid,
 						streamUuid : this.streamUuid,
-						onValueFunction : onValueDebugLog,
-						info : debugLogVizInfo
+						onValueFunction : onValueScanResponseBLE,
+						info : scanResponseBLEVizInfo
 					})
 				}
-				if (name == 'debugLogB') {
-					this.d3SelThing
-						.call(appendDebugLogB)
-					addVizListFromThis.call({
-						d3SelThing : this.d3SelThing,
-						thingUuid : this.thingUuid,
-						streamUuid : this.streamUuid,
-						onValueFunction : onValueDebugLog,
-						info : debugLogVizInfoB
-					})
-				}
+				// if (name == 'healthStatus') {
+				// 	this.d3SelThing
+				// 		.call(appendHealthStatus)
+				// 	addVizListFromThis.call({
+				// 		d3SelThing : this.d3SelThing,
+				// 		thingUuid : this.thingUuid,
+				// 		streamUuid : this.streamUuid,
+				// 		onValueFunction : onValueHealthStatus,
+				// 		info : healthStatusVizInfo
+				// 	})
+				// }
 			}
 		},
-		function cancelCallback() {
-			console.log('refAllOutStreamUuidsByName callback canceled')
-		},
+		authDeclined,
 		context
 	)
 
@@ -440,6 +599,7 @@ allThingInfoByUuidRef.on(
 					})
 					.on('click', onClickButtonThingInfo)
 
+				// start with each button selected
 				onClickButtonThingInfo.call(d3Sel.node())
 			}
 		}
