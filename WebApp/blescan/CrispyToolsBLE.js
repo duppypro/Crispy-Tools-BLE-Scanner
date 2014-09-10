@@ -5,7 +5,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // human readable version of this script
-var scriptVersion = 'CrispyToolsBLE.js v2014-05-14b'
+var scriptVersion = 'CrispyToolsBLE.js v2014-06-12a'
 
 ///////////////////////////////////////////////////////////////////////////////
 // firebase references
@@ -31,11 +31,12 @@ var allThingInfoByUuidRef = new Firebase( [refThingstreamServer,	'allThingInfoBy
 var allVizRefArraysByThingUuid = {} // save refs globally for cleanup when removed
 var allVizd3SelArraysByThingUuid = {} // save dom elements globally for cleanup when removed
 var scanResponseBLEVizInfo = { // TODO: get these *Info objects from cloud Viz name-server
-		limit : 100,
+		limit : 100, //100,
 		title : 'BLE advertisements',
 		VizName : 'BLEAdvPackets',
 		VizTitle : 'scanResponseBLETitle'
 	}
+var historyBLEData
 var healthStatusVizInfo = { // TODO: get these *Info objects from cloud Viz name-server
 		limit : 100,
 		title : 'Battery',
@@ -270,7 +271,7 @@ function redrawBLEList(d3Data, textFromD3Data) {
 		.text(textFromD3Data)
 
 	sessions
-		.sort(compareKey('rssi', -1))
+		.sort(compareKey('MAC'))
 
 	sessions.exit()
 		.remove()
@@ -364,11 +365,19 @@ function convertFBSnapToBLEData(snap) {
 	BLEData = {}
 	// startTime = new Date()
 	keyArray = Object.keys(v)
-	for (var i = 0, l = keyArray.length; i < l; i++) {
-		var t = keyArray[i]
-		var obj = v[t]
+	// go backwards in time so we see most recent
+	for (var i = keyArray.length; i > 0; ) {
+		var t
+		var obj
 
-		BLEData[obj.MAC] = obj
+		i -= 1
+		t = keyArray[i]
+		obj = v[t]
+
+		if (obj.data && (obj.data.substr(10,2) == "4D")) {
+			obj.timeSessionStart = t
+			BLEData[obj.MAC] = obj
+		}
 	}
 	// console.log('Object.keys() = ' + (new Date() - startTime))
 
@@ -392,7 +401,8 @@ function onValueHealthStatus(snap) {
 
 function onValueScanResponseBLE(snap) {
 	var BLEData = convertFBSnapToBLEData(snap)
-	redrawScanResponseBLE.call(this, BLEData)
+	historyBLEData = BLEData
+	redrawScanResponseBLE.call(this, historyBLEData)
 }
 
 function addVizListFromThis() {

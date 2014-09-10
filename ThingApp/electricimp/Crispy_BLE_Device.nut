@@ -5,7 +5,7 @@
 // global constants and variables
 
 // generic
-const versionString = "crispy BLE v00.01.2014-05-14c"
+const versionString = "crispy BLE v00.01.2014-06-12a"
 impeeID <- hardware.getimpeeid() // cache the impeeID FIXME: is this necessary for speed?
 offsetMicros <- 0 // set later to microsseconds % 1000000 when time() rolls over //FIXME: need a better timesync solution here
 const sleepforTimeout = 60 // seconds idle before decrementing idleCount
@@ -30,8 +30,8 @@ button <- hardware.pin1
 function timestamp() {
     local t, t2, m
     t = time() // CONSTRAINT: t= and m= should be atomic but aren't
-    t2 = time()
     m = hardware.micros()
+    t2 = time()
     if (t2 > t) { // check if time() seconds rolled over
         offsetMicros = m % 1000000// re-calibrate offsetMicros
         if (offsetMicros < 0) {
